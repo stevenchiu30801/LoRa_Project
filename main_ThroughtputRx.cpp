@@ -1,3 +1,7 @@
+/*
+ *  This code refers to Mbed example - SX1276PingPong (https://os.mbed.com/teams/Semtech/code/SX1276PingPong/)
+ *  The program uses LoRa to test throughtput in receiver sides.
+ */
 #include "mbed.h"
 #include "main.h"
 #include "sx1276-hal.h"
@@ -10,7 +14,7 @@
 #define USE_MODEM_LORA  1
 #define USE_MODEM_FSK   !USE_MODEM_LORA
 
-#define RF_FREQUENCY                                    868000000 // Hz
+#define RF_FREQUENCY                                    915000000 // Hz
 #define TX_OUTPUT_POWER                                 14        // 14 dBm
 
 #if USE_MODEM_LORA == 1
@@ -96,7 +100,7 @@ int8_t SnrValue = 0.0;
 
 int main( void ) 
 {
-    debug( "\n\n\r     SX1276 SMS Demo Application \n\n\r" );
+    debug( "\n\n\r     SX1276 Throughput Testing \n\n\r" );
 
     // Initialize Radio driver
     RadioEvents.TxDone = OnTxDone;
@@ -154,57 +158,40 @@ int main( void )
 
 #endif
 
-    debug_if( DEBUG_MESSAGE, "Starting SMS loop\r\n" );
+    debug_if( DEBUG_MESSAGE, "Starting Rx loop\r\n" );
 
     led = 0;
-//    char errormsg[] = "CRC Error!\n";
 
     pc.format(8, Serial::None, 1);
     pc.baud(9600);
 
-    Radio.Rx(RX_TIMEOUT_VALUE);
+    Timer t;
+    uint16_t pkgcnt = 0;
+    float throughput;
 
+    t.start();
+    Radio.Rx(0);
     while(1)
     {
-        if(pc.readable())
-        {
-            memset(Buffer, 0, BUFFER_SIZE);
-            gets((char*)Buffer);
-            pc.printf("\n");
-            wait_ms(10);
-            Radio.Send(Buffer, strlen((char*)Buffer));
-        }
-
         switch(State)
         {
         case RX:
-            if(BufferSize > 0)
-            {
-                debug("Receive Packet\r\n");
-                pc.printf("%s\n", Buffer);
-                fflush(stdout);
-                memset(Buffer, 0, BUFFER_SIZE);
+            if(BufferSize > 0){
                 BufferSize = 0;
+                pkgcnt++;
+                if(pkgcnt % 500 == 0){
+                    t.stop();
+                    throughput = (500 * 32 * 8) / 1000 / t.read();
+                    pc.printf("Received 500 pkgs in %fs [%.2f Kbps]\n", t.read(), throughput);
+                    t.reset();
+                    t.start();
+                }
             }
-            Radio.Rx(RX_TIMEOUT_VALUE);
+            Radio.Rx(0);
             State = LOWPOWER;
             break;
-        case TX:
-            Radio.Rx(RX_TIMEOUT_VALUE);
-            State = LOWPOWER;
-            break;
-        case RX_TIMEOUT:
-            Radio.Rx(RX_TIMEOUT_VALUE);
-            State = LOWPOWER;
         case RX_ERROR:
-            // debug("receive packets with CRC errors\r\n");
-            // wait_ms(10);
-            // Radio.Send((uint8_t*)errormsg, sizeof(errormsg));
-            Radio.Rx(RX_TIMEOUT_VALUE);
-            State = LOWPOWER;
-            break;
-        case TX_TIMEOUT:
-            Radio.Rx(RX_TIMEOUT_VALUE);
+            Radio.Rx(0);
             State = LOWPOWER;
             break;
         case LOWPOWER:
@@ -225,13 +212,10 @@ void OnTxDone( void )
 
 void OnRxDone( uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr )
 {
-    Radio.Sleep( );
     BufferSize = size;
-    memcpy( Buffer, payload, BufferSize );
-    RssiValue = rssi;
-    SnrValue = snr;
+    // memcpy( Buffer, payload, BufferSize );
     State = RX;
-    debug_if( DEBUG_MESSAGE, "> OnRxDone\n\r" );
+    // debug_if( DEBUG_MESSAGE, "> OnRxDone\n\r" );
 }
 
 void OnTxTimeout( void )
