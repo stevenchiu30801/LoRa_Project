@@ -59,6 +59,8 @@ DigitalOut led( LED2 );
 DigitalOut led( LED1 );
 #endif
 
+#define FILTER_FRAME_SIZE 10
+
 /*
  *  Global variables declarations
  */
@@ -97,6 +99,35 @@ uint8_t Buffer[BUFFER_SIZE];
 
 int16_t RssiValue = 0.0;
 int8_t SnrValue = 0.0;
+
+int8_t frame_idx = 0;
+int16_t rssi_frame[FILTER_FRAME_SIZE] = {0};
+
+int16_t average_filter(){
+    int32_t sum_rssi = 0;
+    for(int i = 0; i < FILTER_FRAME_SIZE; i++)
+        sum_rssi += rssi_frame[i];
+
+    return sum_rssi / FILTER_FRAME_SIZE;
+}
+
+int16_t median_filter(){
+    int16_t tmp, rssi_cpy[FILTER_FRAME_SIZE];
+    int8_t i, j;
+    for(i = 0; i < FILTER_FRAME_SIZE; i++)
+        rssi_cpy[i] = rssi_frame[i];
+
+    // Bubble sort
+    for(i = 0; i < FILTER_FRAME_SIZE - 1; i++)
+        for(j = i; j < FILTER_FRAME_SIZE; j++)
+            if(rssi_cpy[i] > rssi_cpy[j]){
+                tmp = rssi_cpy[i];
+                rssi_cpy[i] = rssi_cpy[j];
+                rssi_cpy[j] = tmp;
+            }
+
+    return rssi_cpy[FILTER_FRAME_SIZE / 2];
+}
 
 int main( void ) 
 {
@@ -165,7 +196,7 @@ int main( void )
     pc.format(8, Serial::None, 1);
     pc.baud(9600);
 
-    int16_t rssi;
+    int16_t filter_rssi;
     Radio.Rx(0);
 
     while(1)
@@ -175,9 +206,15 @@ int main( void )
         case RX:
             if(BufferSize > 0){
                 BufferSize = 0;
-                rssi = Radio.GetRssi(MODEM_LORA);
-                printf("%d\n", rssi);
-                wait_ms(50);
+                // rssi = Radio.GetRssi(MODEM_LORA);
+                // printf("instant rssi: %d\n", RssiValue);
+                rssi_frame[frame_idx] = RssiValue;
+                frame_idx = (++frame_idx) % FILTER_FRAME_SIZE;
+                if(frame_idx == 0){
+                    filter_rssi = average_filter();
+                    printf("%d\n", filter_rssi);
+                }
+                wait_ms(100);
             }
             Radio.Rx(0);
             State = LOWPOWER;
@@ -204,7 +241,7 @@ void OnTxDone( void )
 
 void OnRxDone( uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr )
 {
-    Radio.Sleep();
+    // Radio.Sleep();
     BufferSize = size;
     // memcpy( Buffer, payload, BufferSize );
     RssiValue = rssi;
